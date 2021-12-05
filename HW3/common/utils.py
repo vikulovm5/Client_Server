@@ -14,6 +14,8 @@ def get_message(client):
 
 
 def send_message(sock, message):
+    if not isinstance(message, dict):
+        raise TypeError
     json_msg = json.dumps(message)
     enc_msg = json_msg.encode(ENCODING)
     sock.send(enc_msg)

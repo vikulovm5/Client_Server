@@ -1,4 +1,5 @@
 from HW3.client import *
+from HW3.common.variables import *
 import sys
 import os
 import unittest
@@ -26,10 +27,6 @@ class TestClient(unittest.TestCase):
 
     def test_process_answer_error(self):
         self.assertRaises(ValueError, process_ans, {ERROR: 'Bad request'})
-
-    def test_main_valueerror(self, server_port=1022):
-        self.assertRaises(ValueError, main)
-
 
 
 if __name__ == '__main__':
