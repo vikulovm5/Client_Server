@@ -8,18 +8,80 @@ client.py <addr> [<port>]: addr — ip-адрес сервера; port — tcp-�
 <port> — TCP-порт для работы (по умолчанию использует 7777); -a <addr> — IP-адрес для прослушивания (по умолчанию
 слушает все доступные адреса).
 """
-import json
 from socket import *
+import sys
+import argparse
+import json
+import logging
+import HW3.log.server_log_config
+from HW3.errors import WrongDataReceived
+from HW3.common.variables import *
+from HW3.common.utils import *
+from HW3.decors import Log
 
-s = socket(AF_INET, SOCK_STREAM)
-s.bind(('', 7777))
-s.listen(5)
-answr = {"response": 200, "alert": "Подключение подтверждено"}
-msg = json.dumps(answr)
 
-while True:
-    client, addr = s.accept()
-    data = client.recv(10000).decode('utf-8')
-    print('Запрос:', json.loads(data), ', от:', addr)
-    client.sendall(bytes(msg, encoding='utf-8'))
-    client.close()
+logger = logging.getLogger('server')
+
+
+@Log()
+def process_client_message(msg):
+    logger.debug(f'Разбор сообщения клиента: {msg} ')
+    if ACTION in msg and msg[ACTION] == PRESENCE and TIME in msg and USER in msg and msg[USER][ACCOUNT_NAME] == 'Guest':
+        return {RESPONSE: 200}
+    return {
+        RESPONSE: 400,
+        ERROR: 'Bad Request'
+    }
+
+
+@Log()
+def arg_parser():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-p', default=DEFAULT_PORT, type=int, nargs='?')
+    parser.add_argument('-a', default='', nargs='?')
+    return parser
+
+
+def main():
+    parser = arg_parser()
+    namespace = parser.parse_args(sys.argv[1:])
+    listen_address = namespace.a
+    listen_port = namespace.p
+    if not 1023 < listen_port < 65536:
+        logger.critical(
+            f'Некорректно указан номер порта: {listen_port} '
+            f'Номер порта должен быть в диапазоне от 1024 до 65535'
+        )
+        sys.exit(1)
+    logger.info(
+        f'Запущен сервер с номером порта: {listen_port} '
+        f'Адрес подключения: {listen_address} '
+        f'При отсутствии указания адреса, соединения принимаются с любых адресов'
+    )
+
+    s = socket(AF_INET, SOCK_STREAM)
+    s.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
+    s.bind((listen_address, listen_port))
+    s.listen(MAX_CONNECTIONS)
+
+    while True:
+        client, client_address = s.accept()
+        logger.info(f'Установлено соединение с клиентом {client_address} ')
+        try:
+            cl_msg = get_message(client)
+            logger.debug(f'Получено сообщение клиента: {cl_msg} ')
+            response = process_client_message(cl_msg)
+            logger.info(f'Сформирован ответ клиенту: {response} ')
+            send_message(client, response)
+            logger.debug(f'Соединение с клиентом {client_address} закрывается ')
+            client.close()
+        except json.JSONDecodeError:
+            logger.error(f'Ошибка декодирования json клиента {client_address} ')
+            client.close()
+        except WrongDataReceived:
+            logger.error(f'Принятые данные от клиента {client_address} некорректны ')
+            client.close()
+
+
+if __name__ == '__main__':
+    main()
