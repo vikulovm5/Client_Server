@@ -10,6 +10,8 @@ client.py <addr> [<port>]: addr — ip-адрес сервера; port — tcp-�
 """
 from socket import *
 import sys
+import select
+import time
 import argparse
 import json
 import logging
@@ -24,14 +26,19 @@ logger = logging.getLogger('server')
 
 
 @Log()
-def process_client_message(msg):
+def process_client_message(msg, messages_list, client):
     logger.debug(f'Разбор сообщения клиента: {msg} ')
     if ACTION in msg and msg[ACTION] == PRESENCE and TIME in msg and USER in msg and msg[USER][ACCOUNT_NAME] == 'Guest':
         return {RESPONSE: 200}
-    return {
-        RESPONSE: 400,
-        ERROR: 'Bad Request'
-    }
+    elif ACTION in msg and msg[ACTION] == MESSAGE and TIME in msg and MESSAGE_TEXT in msg:
+        messages_list.append((msg[ACCOUNT_NAME], msg[MESSAGE_TEXT]))
+        return
+    else:
+        send_message(client, {
+            RESPONSE: 400,
+            ERROR: 'Bad Request'
+        })
+        return
 
 
 @Log()
@@ -39,20 +46,23 @@ def arg_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument('-p', default=DEFAULT_PORT, type=int, nargs='?')
     parser.add_argument('-a', default='', nargs='?')
-    return parser
-
-
-def main():
-    parser = arg_parser()
     namespace = parser.parse_args(sys.argv[1:])
     listen_address = namespace.a
     listen_port = namespace.p
+
     if not 1023 < listen_port < 65536:
         logger.critical(
             f'Некорректно указан номер порта: {listen_port} '
             f'Номер порта должен быть в диапазоне от 1024 до 65535'
         )
         sys.exit(1)
+
+    return listen_address, listen_port
+
+
+def main():
+    listen_address, listen_port = arg_parser()
+
     logger.info(
         f'Запущен сервер с номером порта: {listen_port} '
         f'Адрес подключения: {listen_address} '
@@ -62,25 +72,55 @@ def main():
     s = socket(AF_INET, SOCK_STREAM)
     s.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
     s.bind((listen_address, listen_port))
+    s.settimeout(1)
+
+    clients = []
+    messages = []
+
     s.listen(MAX_CONNECTIONS)
 
     while True:
-        client, client_address = s.accept()
-        logger.info(f'Установлено соединение с клиентом {client_address} ')
         try:
-            cl_msg = get_message(client)
-            logger.debug(f'Получено сообщение клиента: {cl_msg} ')
-            response = process_client_message(cl_msg)
-            logger.info(f'Сформирован ответ клиенту: {response} ')
-            send_message(client, response)
-            logger.debug(f'Соединение с клиентом {client_address} закрывается ')
-            client.close()
-        except json.JSONDecodeError:
-            logger.error(f'Ошибка декодирования json клиента {client_address} ')
-            client.close()
-        except WrongDataReceived:
-            logger.error(f'Принятые данные от клиента {client_address} некорректны ')
-            client.close()
+            client, client_address = s.accept()
+        except OSError:
+            pass
+        else:
+            logger.info(f'Установлено соединение с клиентом {client_address} ')
+            clients.append(client)
+
+        receive_data_lst = []
+        send_data_lst = []
+        error_lst = []
+
+        try:
+            if clients:
+                receive_data_lst, send_data_lst, error_lst = select.select(clients, clients, [], 0)
+        except OSError:
+            pass
+
+        if receive_data_lst:
+            for client_with_msg in receive_data_lst:
+                try:
+                    process_client_message(get_message(client_with_msg), messages, client_with_msg)
+                except:
+                    logger.info(f'Клиент {client_with_msg.getpeername()} отключен от сервера')
+                    clients.remove(client_with_msg)
+
+        if messages and send_data_lst:
+            msg = {
+                ACTION: MESSAGE,
+                SENDER: messages[0][0],
+                TIME: time.time(),
+                MESSAGE_TEXT: messages[0][1]
+            }
+            del messages[0]
+            for waiting_cl in send_data_lst:
+                try:
+                    send_message(waiting_cl, msg)
+                except:
+                    logger.info(f'Клиент {waiting_cl.getpeername()} отключен от сервера')
+                    waiting_cl.close()
+                    clients.remove(waiting_cl)
 
 
 if __name__ == '__main__':
