@@ -26,19 +26,43 @@ logger = logging.getLogger('server')
 
 
 @Log()
-def process_client_message(msg, messages_list, client):
+def process_client_message(msg, messages_list, client, clients, names):
     logger.debug(f'Разбор сообщения клиента: {msg} ')
-    if ACTION in msg and msg[ACTION] == PRESENCE and TIME in msg and USER in msg and msg[USER][ACCOUNT_NAME] == 'Guest':
-        return {RESPONSE: 200}
-    elif ACTION in msg and msg[ACTION] == MESSAGE and TIME in msg and MESSAGE_TEXT in msg:
-        messages_list.append((msg[ACCOUNT_NAME], msg[MESSAGE_TEXT]))
+    if ACTION in msg and msg[ACTION] == PRESENCE and TIME in msg and USER in msg:
+        if msg[USER][ACCOUNT_NAME] not in names.keys():
+            names[msg[USER][ACCOUNT_NAME]] = client
+            send_message(client, RESPONSE_200)
+        else:
+            response = RESPONSE_400
+            response[ERROR] = 'Такое имя пользователя уже существует '
+            send_message(client, response)
+            clients.remove(client)
+            client.close()
+        return
+    elif ACTION in msg and msg[ACTION] == MESSAGE and DESTINATION in msg and TIME in msg and SENDER in msg and MESSAGE_TEXT in msg:
+        messages_list.append(msg)
+        return
+    elif ACTION in msg and msg[ACTION] == EXIT and ACCOUNT_NAME in msg:
+        clients.remove(names[msg[ACCOUNT_NAME]])
+        names[msg[ACCOUNT_NAME]].close()
+        del names[msg[ACCOUNT_NAME]]
         return
     else:
-        send_message(client, {
-            RESPONSE: 400,
-            ERROR: 'Bad Request'
-        })
+        response = RESPONSE_400
+        response[ERROR] = 'Запрос некорректен '
+        send_message(client, response)
         return
+
+
+@Log()
+def process_message(msg, names, listen_socks):
+    if msg[DESTINATION] in names and names[msg[DESTINATION]] in listen_socks:
+        send_message(names[msg[DESTINATION]], msg)
+        logger.info(f'Пользователю {msg[DESTINATION]} отправлено сообщение от пользователя {msg[SENDER]} ')
+    elif msg[DESTINATION] in names and names[msg[DESTINATION]] not in listen_socks:
+        raise ConnectionError
+    else:
+        logger.error(f'Пользователь {msg[DESTINATION]} не зарегистрирован на сервере. Отправка сообщения невозможна ')
 
 
 @Log()
@@ -76,6 +100,7 @@ def main():
 
     clients = []
     messages = []
+    names = dict()
 
     s.listen(MAX_CONNECTIONS)
 
@@ -101,26 +126,19 @@ def main():
         if receive_data_lst:
             for client_with_msg in receive_data_lst:
                 try:
-                    process_client_message(get_message(client_with_msg), messages, client_with_msg)
-                except:
+                    process_client_message(get_message(client_with_msg), messages, client_with_msg, clients, names)
+                except Exception:
                     logger.info(f'Клиент {client_with_msg.getpeername()} отключен от сервера')
                     clients.remove(client_with_msg)
 
-        if messages and send_data_lst:
-            msg = {
-                ACTION: MESSAGE,
-                SENDER: messages[0][0],
-                TIME: time.time(),
-                MESSAGE_TEXT: messages[0][1]
-            }
-            del messages[0]
-            for waiting_cl in send_data_lst:
-                try:
-                    send_message(waiting_cl, msg)
-                except:
-                    logger.info(f'Клиент {waiting_cl.getpeername()} отключен от сервера')
-                    waiting_cl.close()
-                    clients.remove(waiting_cl)
+        for i in messages:
+            try:
+                process_message(i, names, send_data_lst)
+            except Exception:
+                logger.info(f'Связь с клиентом {i[DESTINATION]} прервана ')
+                clients.remove(names[i[DESTINATION]])
+                del names[i[DESTINATION]]
+        messages.clear()
 
 
 if __name__ == '__main__':
