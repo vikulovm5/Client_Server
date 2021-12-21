@@ -9,10 +9,9 @@ while True:
         break
     elif ACTION == 's':
         process.append(subprocess.Popen('python server.py', creationflags=subprocess.CREATE_NEW_CONSOLE))
-        for i in range(2):
-            process.append(subprocess.Popen('python server.py -m send', creationflags=subprocess.CREATE_NEW_CONSOLE))
-        for i in range(2):
-            process.append(subprocess.Popen('python server.py -m listen', creationflags=subprocess.CREATE_NEW_CONSOLE))
+        process.append(subprocess.Popen('python client.py -n Jimmy', creationflags=subprocess.CREATE_NEW_CONSOLE))
+        process.append(subprocess.Popen('python client.py -n Tony', creationflags=subprocess.CREATE_NEW_CONSOLE))
+        process.append(subprocess.Popen('python client.py -n Sara', creationflags=subprocess.CREATE_NEW_CONSOLE))
     if ACTION == 'x':
         while process:
             process.pop().kill()

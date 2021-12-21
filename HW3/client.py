@@ -14,11 +14,12 @@ import json
 from socket import *
 import time
 import argparse
+import threading
 import logging
 import HW3.log.client_log_config
 from HW3.common.variables import *
 from HW3.common.utils import get_message, send_message
-from HW3.errors import MissingField, ServerError
+from HW3.errors import WrongDataReceived, MissingField, ServerError
 from HW3.decors import Log
 
 
@@ -26,32 +27,71 @@ logger = logging.getLogger('client')
 
 
 @Log()
-def msg_from_server(msg):
-    if ACTION in msg and msg[ACTION] == MESSAGE and SENDER in msg and MESSAGE_TEXT in msg:
-        print(f'Получено сообщение от пользователя {msg[SENDER]}: '
-              f'{msg[MESSAGE_TEXT]}')
-        logger.info(f'Получено сообщение от пользователя {msg[SENDER]}: '
-                    f'{msg[MESSAGE_TEXT]}')
-    else:
-        logger.error(f'Получено некорректное сообщение от сервера: {msg} ')
+def exit_msg(account_name):
+    return {
+        ACTION: EXIT,
+        TIME: time.time(),
+        ACCOUNT_NAME: account_name
+    }
+
+
+@Log()
+def msg_from_server(sock, my_username):
+    while True:
+        try:
+            msg = get_message(sock)
+            if ACTION in msg and msg[ACTION] == MESSAGE and SENDER in msg and DESTINATION in msg and MESSAGE_TEXT in msg and msg[DESTINATION] == my_username:
+                print(f'Получено сообщение от пользователя {msg[SENDER]}: '
+                      f'{msg[MESSAGE_TEXT]}')
+                logger.info(f'Получено сообщение от пользователя {msg[SENDER]}: '
+                            f'{msg[MESSAGE_TEXT]}')
+            else:
+                logger.error(f'Получено некорректное сообщение от сервера: {msg} ')
+        except WrongDataReceived:
+            logger.error('Ошибка декодирования ')
+        except (OSError, ConnectionError, ConnectionAbortedError, ConnectionResetError, json.JSONDecodeError):
+            logger.critical(f'Соединение с сервером прервано ')
+            break
 
 
 @Log()
 def create_msg(sock, account_name='Guest'):
-    msg = input('Введите сообщение. Для завершения работы введите \'exit\'.')
-    if msg == 'exit':
-        sock.close()
-        logger.info('Пользователь завершил работу.')
-        print('Работа завершена. ')
-        sys.exit(0)
+    to_user = input('Введите имя получателя. ')
+    msg = input('Введите сообщение. ')
+
     msg_dict = {
         ACTION: MESSAGE,
+        SENDER: account_name,
+        DESTINATION: to_user,
         TIME: time.time(),
-        ACCOUNT_NAME: account_name,
         MESSAGE_TEXT: msg
     }
     logger.debug(f'Сформирован словарь сообщения: {msg_dict}')
-    return msg_dict
+    try:
+        send_message(sock, msg_dict)
+        logger.info(f'Отправлено сообщение пользователю {to_user} ')
+    except:
+        logger.critical('Соединение с сервером прервано ')
+        sys.exit(1)
+
+
+@Log()
+def user_interaction(sock, username):
+    print_help()
+    while True:
+        command = input('Введите команду: ')
+        if command == 'message':
+            create_msg(sock, username)
+        elif command == 'help':
+            print_help()
+        elif command == 'exit':
+            send_message(sock, exit_msg(username))
+            print('Завершение соединения ')
+            logger.info('Соединение прервано пользователем ')
+            time.sleep(1)
+            break
+        else:
+            print('Неизветная команда. help - показать возможные команды ')
 
 
 @Log()
@@ -65,6 +105,13 @@ def create_request(account_name='Guest'):
     }
     logger.debug(f'Сгенерирован {PRESENCE} запрос для пользователя {account_name} ')
     return req
+
+
+def print_help():
+    print('Поддерживаемые команды:')
+    print('message - отправить сообщение. Получатель и текст будут запрошены отдельно.')
+    print('help - подсказки команд')
+    print('exit - выход из программы')
 
 
 @Log()
@@ -83,11 +130,11 @@ def arg_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument('addr', default=DEFAULT_IP_ADDRESS, nargs='?')
     parser.add_argument('port', default=DEFAULT_PORT, nargs='?')
-    parser.add_argument('-m', '--mode', default='listen', nargs='?')
+    parser.add_argument('-n', '--name', default=None, nargs='?')
     namespace = parser.parse_args(sys.argv[1:])
     server_addr = namespace.addr
     server_port = namespace.port
-    client_mode = namespace.mode
+    client_name = namespace.name
 
     if not 1023 < server_port < 65536:
         logger.critical(
@@ -96,26 +143,26 @@ def arg_parser():
         )
         sys.exit(1)
 
-    if client_mode not in ('listen', 'send'):
-        logger.critical(f'Указанный режим работы - {client_mode} не относится к допустимым: listen, send. ')
-        sys.exit(1)
-
-    return server_addr, server_port, client_mode
+    return server_addr, server_port, client_name
 
 
 def main():
 
-    server_addr, server_port, client_mode = arg_parser()
+    server_addr, server_port, client_name = arg_parser()
+
+    print(f'Запущен мессенджер. Клиентский модудь. Пользователь: {client_name} ')
+    if not client_name:
+        client_name = input('Введите имя пользователя: ')
 
     logger.info(
         f'Запущен клиент с параметрами: '
-        f'Адрес сервера: {server_addr}, порт: {server_port}, режим работы: {client_mode} '
+        f'Адрес сервера: {server_addr}, порт: {server_port}, имя пользователя: {client_name} '
     )
 
     try:
         s = socket(AF_INET, SOCK_STREAM)
         s.connect((server_addr, server_port))
-        send_message(s, create_request())
+        send_message(s, create_request(client_name))
         answer = process_ans(get_message(s))
         logger.info(f'Ответ сервера: {answer} ')
         print('Соединение с сервером установлено. ')
@@ -128,23 +175,18 @@ def main():
     except MissingField as missing_err:
         logger.error(f'В ответе сервера отсутствует поле: {missing_err.missing_field} ')
     else:
-        if client_mode == 'send':
-            print('Режим работы - отправка сообщений. ')
-        else:
-            print('Режим работы - прием сообщений. ')
+        receiver = threading.Thread(target=user_interaction, args=(s, client_name), daemon=True)
+        receiver.start()
+
+        user_interface = threading.Thread(target=user_interaction, args=(s, client_name), daemon=True)
+        user_interface.start()
+        logger.debug('Процессы запущены ')
+
         while True:
-            if client_mode == 'send':
-                try:
-                    send_message(s, create_msg(s))
-                except (ConnectionResetError, ConnectionError, ConnectionAbortedError):
-                    logger.error(f'Соединение с сервером {server_addr} прервано. ')
-                    sys.exit(1)
-            if client_mode == 'listen':
-                try:
-                    msg_from_server(get_message(s))
-                except (ConnectionResetError, ConnectionError, ConnectionAbortedError):
-                    logger.error(f'Соединение с сервером {server_addr} прервано. ')
-                    sys.exit(1)
+            time.sleep(1)
+            if receiver.is_alive() and user_interface.is_alive():
+                continue
+            break
 
 
 if __name__ == '__main__':
