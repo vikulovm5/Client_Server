@@ -1,3 +1,4 @@
+import threading
 from socket import *
 import sys
 import select
@@ -12,6 +13,7 @@ from HW3.common.utils import *
 from HW3.decors import Log
 from descripts import Port
 from metaclasses import ServerMaker
+from HW3.db_creator.server_db_decl import ServerDB
 
 
 logger = logging.getLogger('server')
@@ -28,16 +30,18 @@ def arg_parser():
     return listen_address, listen_port
 
 
-class Server(metaclass=ServerMaker):
+class Server(threading.Thread, metaclass=ServerMaker):
     port = Port()
 
-    def __init__(self, listen_address, listen_port):
+    def __init__(self, listen_address, listen_port, database):
         self.addr = listen_address
         self.port = listen_port
 
+        self.database = database
         self.clients = []
         self.messages = []
         self.names = dict()
+        super().__init__()
 
     def init_sock(self):
         logger.info(
@@ -108,6 +112,8 @@ class Server(metaclass=ServerMaker):
         if ACTION in msg and msg[ACTION] == PRESENCE and TIME in msg and USER in msg:
             if msg[USER][ACCOUNT_NAME] not in self.names.keys():
                 self.names[msg[USER][ACCOUNT_NAME]] = client
+                client_ip, client_port = client.getpeername()
+                self.database.user_login(msg[USER][ACCOUNT_NAME], client_ip, client_port)
                 send_message(client, RESPONSE_200)
             else:
                 response = RESPONSE_400
@@ -120,6 +126,7 @@ class Server(metaclass=ServerMaker):
             self.messages.append(msg)
             return
         elif ACTION in msg and msg[ACTION] == EXIT and ACCOUNT_NAME in msg:
+            self.database.user_logout(msg[ACCOUNT_NAME])
             self.clients.remove(self.names[msg[ACCOUNT_NAME]])
             self.names[msg[ACCOUNT_NAME]].close()
             del self.names[ACCOUNT_NAME]
@@ -131,10 +138,44 @@ class Server(metaclass=ServerMaker):
             return
 
 
+def print_help():
+    print('Поддерживаемые комманды:')
+    print('users - список известных пользователей')
+    print('connected - список подключённых пользователей')
+    print('loghist - история входов пользователя')
+    print('exit - завершение работы сервера.')
+    print('help - вывод справки по поддерживаемым командам')
+
+
 def main():
     listen_address, listen_port = arg_parser()
-    server = Server(listen_address, listen_port)
-    server.main_loop()
+    database = ServerDB()
+    server = Server(listen_address, listen_port, database)
+    server.daemon = True
+    server.start()
+    print_help()
+
+    while True:
+        command = input('Введите команду: ')
+        if command == 'help':
+            print_help()
+        elif command == 'exit':
+            break
+        elif command == 'users':
+            for user in sorted(database.users_list()):
+                print(f'Пользователь {user[0]}, последний вход: {user[1]}')
+        elif command == 'connected':
+            for user in sorted(database.active_users_list()):
+                print(f'Пользователь: {user[0]}, подключен: {user[1]}:{user[2]}, время подключения: {user[3]}')
+        elif command == 'loghist':
+            name = input(
+                'Введите имя пользователя для просмотра истории '
+                'Для вывода всей истории нажмите Enter: '
+            )
+            for user in sorted(database.login_history(name)):
+                print(f'Пользователь: {user[0]} время входа: {user[1]}. Вход с: {user[2]}:{user[3]}')
+        else:
+            print('Команда не распознана ')
 
 
 if __name__ == '__main__':
