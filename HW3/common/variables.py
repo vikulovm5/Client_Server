@@ -6,7 +6,7 @@ MAX_CONNECTIONS = 5
 MAX_PACKAGE_LENGTH = 1024
 ENCODING = 'utf-8'
 LOGGING_LEVEL = logging.DEBUG
-SERVER_CONFIG = 'server.ini'
+SERVER_CONFIG = 'server+++.ini'
 
 # JIM keys
 ACTION = 'action'
