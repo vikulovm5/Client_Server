@@ -1,18 +1,12 @@
 import threading
-import sys
 import os
-import json
-import logging
-import time
 import configparser
-import log.server_log_config
-from errors import WrongDataReceived
 from socket import *
 import select
 import argparse
 from HW3.common.variables import *
 from HW3.common.utils import *
-from HW3.decors import Log
+from common.decors import Log
 from descripts import Port
 from metaclasses import ServerMaker
 from server_db import ServerDB
@@ -20,7 +14,6 @@ from PyQt5.QtWidgets import QApplication, QMessageBox
 from PyQt5.QtCore import QTimer
 from server_gui import MainWindow, gui_create_model, HistoryWindow, create_stat_model, ConfigWindow
 from PyQt5.QtGui import QStandardItemModel, QStandardItem
-
 
 logger = logging.getLogger('server')
 
@@ -30,10 +23,10 @@ conflag_lock = threading.Lock()
 
 
 @Log()
-def arg_parser():
+def arg_parser(default_port, default_address):
     parser = argparse.ArgumentParser()
-    parser.add_argument('-p', default=DEFAULT_PORT, type=int, nargs='?')
-    parser.add_argument('-a', default='', nargs='?')
+    parser.add_argument('-p', default=default_port, type=int, nargs='?')
+    parser.add_argument('-a', default=default_address, nargs='?')
     namespace = parser.parse_args(sys.argv[1:])
     listen_address = namespace.a
     listen_port = namespace.p
@@ -69,6 +62,7 @@ class Server(threading.Thread, metaclass=ServerMaker):
         self.sock.listen()
 
     def main_loop(self):
+        global new_connection
         self.init_sock()
 
         while True:
@@ -102,6 +96,8 @@ class Server(threading.Thread, metaclass=ServerMaker):
                                 del self.names[name]
                                 break
                         self.clients.remove(client_with_msg)
+                        with conflag_lock:
+                            new_connection = True
 
             for message in self.messages:
                 try:
@@ -111,6 +107,8 @@ class Server(threading.Thread, metaclass=ServerMaker):
                     self.clients.remove(self.names[message[DESTINATION]])
                     self.database.user_logout(message[DESTINATION])
                     del self.names[message[DESTINATION]]
+                    with conflag_lock:
+                        new_connection = True
             self.messages.clear()
 
     def process_message(self, msg, listen_socks):
@@ -123,6 +121,7 @@ class Server(threading.Thread, metaclass=ServerMaker):
             logger.error(f'Пользователь {msg[DESTINATION]} не зарегистрирован на сервере. Отправка сообщения невозможна ')
 
     def process_client_message(self, msg, client):
+        global new_connection
         logger.debug(f'Разбор сообщения клиента: {msg} ')
 
         if ACTION in msg and msg[ACTION] == PRESENCE and TIME in msg and USER in msg:
@@ -141,9 +140,15 @@ class Server(threading.Thread, metaclass=ServerMaker):
                 client.close()
             return
 
-        elif ACTION in msg and msg[ACTION] == MESSAGE and DESTINATION in msg and TIME in msg and SENDER in msg and MESSAGE_TEXT in msg:
-            self.messages.append(msg)
-            self.database.process_message(msg[SENDER], msg[DESTINATION])
+        elif ACTION in msg and msg[ACTION] == MESSAGE and DESTINATION in msg and TIME in msg and SENDER in msg and MESSAGE_TEXT in msg and self.names[msg[SENDER]] == client:
+            if msg[DESTINATION] in self.names:
+                self.messages.append(msg)
+                self.database.process_message(msg[SENDER], msg[DESTINATION])
+                send_message(client, RESPONSE_200)
+            else:
+                response = RESPONSE_400
+                response[ERROR] = 'Пользователь не зарегистрирован на сервере'
+                send_message(client, response)
             return
 
         elif ACTION in msg and msg[ACTION] == EXIT and ACCOUNT_NAME in msg:
@@ -181,10 +186,23 @@ class Server(threading.Thread, metaclass=ServerMaker):
             return
 
 
-def main():
+def config_load():
     config = configparser.ConfigParser()
     dir_path = os.path.dirname(os.path.realpath(__file__))
-    config.read(f"{dir_path}/{'server.ini'}")
+    config.read(f"{dir_path}/{'server+++.ini'}")
+    if 'SETTINGS' in config:
+        return config
+    else:
+        config.add_section('SETTINGS')
+        config.set('SETTINGS', 'Default_port', str(DEFAULT_PORT))
+        config.set('SETTINGS', 'Listen_address', '')
+        config.set('SETTINGS', 'Database_path', '')
+        config.set('SETTINGS', 'Database_file', 'server_db.db3')
+        return config
+
+
+def main():
+    config = config_load()
 
     listen_address, listen_port = arg_parser(config['SETTINGS']['Default_port'], config['SETTINGS']['Listen_Address'])
 

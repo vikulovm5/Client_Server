@@ -1,5 +1,8 @@
 from sqlalchemy import create_engine, Table, Column, Integer, String, Text, MetaData, DateTime
 from sqlalchemy.orm import mapper, sessionmaker
+import os
+import sys
+sys.path.append('../')
 from common.variables import *
 import datetime
 
@@ -11,10 +14,10 @@ class ClientDB:
             self.username = user
 
     class MessageHistory:
-        def __init__(self, from_user, to_user, message):
+        def __init__(self, contact, direction, message):
             self.id = None
-            self.from_user = from_user
-            self.to_user = to_user
+            self.contact = contact
+            self.direction = direction
             self.message = message
             self.date = datetime.datetime.now()
 
@@ -24,7 +27,9 @@ class ClientDB:
             self.name = contact
 
     def __init__(self, name):
-        self.engine = create_engine(f'sqlite:///client_{name}.db3', echo=False, pool_recycle=7200, connect_args={'check_same_thread': False})
+        path = os.path.dirname(os.path.realpath(__file__))
+        filename = f'client_{name}.db3'
+        self.engine = create_engine(f'sqlite:///{os.path.join(path, filename)}', echo=False, pool_recycle=7200, connect_args={'check_same_thread': False})
 
         self.metadata = MetaData()
 
@@ -37,8 +42,8 @@ class ClientDB:
         history = Table(
             'message_history', self.metadata,
             Column('id', Integer, primary_key=True),
-            Column('from_user', String),
-            Column('to_user', String),
+            Column('contact', String),
+            Column('direction', String),
             Column('message', Text),
             Column('date', DateTime)
         )
@@ -101,13 +106,9 @@ class ClientDB:
         else:
             return False
 
-    def get_history(self, from_who=None, to_who=None):
-        query = self.session.query(self.MessageHistory)
-        if from_who:
-            query = query.filter_by(from_user=from_who)
-        if to_who:
-            query = query.filter_by(to_user=to_who)
-        return [(history_row.from_user, history_row.to_user, history_row.message, history_row.date) for history_row in query.all()]
+    def get_history(self, contact):
+        query = self.session.query(self.MessageHistory).filter_by(contact=contact)
+        return [(history_row.contact, history_row.direction, history_row.message, history_row.date) for history_row in query.all()]
 
 
 if __name__ == '__main__':
@@ -122,8 +123,6 @@ if __name__ == '__main__':
     print(db.get_users())
     print(db.check_user('test1'))
     print(db.check_user('test10'))
-    print(db.get_history('test2'))
-    print(db.get_history(to_who='test2'))
-    print(db.get_history('test3'))
+    print(sorted(db.get_history('test2'), key=lambda item: item[3]))
     db.delete_contact('test4')
     print(db.get_contacts())
