@@ -19,6 +19,12 @@ logger = logging.getLogger('server')
 
 
 class MessageProcessor(threading.Thread):
+    """
+    Основной класс сервера. Принимает содинения, словари - пакеты
+    от клиентов, обрабатывает поступающие сообщения.
+    Работает в качестве отдельного потока.
+    """
+
     port = Port()
 
     def __init__(self, listen_address, listen_port, database):
@@ -35,6 +41,10 @@ class MessageProcessor(threading.Thread):
         super().__init__()
 
     def run(self):
+        """
+        Метод - основной цикл потока.
+        """
+
         self.init_socket()
 
         while self.running:
@@ -66,6 +76,11 @@ class MessageProcessor(threading.Thread):
                         self.clients.remove(client_with_msg)
 
     def remove_client(self, client):
+        """
+        Метод - обработчик клиента с которым прервана связь.
+        Ищет клиента и удаляет его из списков и базы:
+        """
+
         logger.info(f'Клиент {client.getpeername()} отключился от сервера')
         for name in self.names:
             if self.names[name] == client:
@@ -76,6 +91,10 @@ class MessageProcessor(threading.Thread):
         client.close()
 
     def init_socket(self):
+        """
+        Метод - инициализатор сокета.
+        """
+
         logger.info(
             f'Запущен сервер с номером порта: {self.port} '
             f'Адрес подключения: {self.addr} '
@@ -90,9 +109,16 @@ class MessageProcessor(threading.Thread):
         self.sock.listen(MAX_CONNECTIONS)
 
     def process_message(self, msg):
+        """
+        Метод отправки сообщения клиенту.
+        """
+
         if msg[DESTINATION] in self.names and self.names[msg[DESTINATION]] in self.listen_sockets:
-            send_message(self.names[msg[DESTINATION]], msg)
-            logger.info(f'Пользователю {msg[DESTINATION]} отправлено сообщение от пользователя {msg[SENDER]} ')
+            try:
+                send_message(self.names[msg[DESTINATION]], msg)
+                logger.info(f'Пользователю {msg[DESTINATION]} отправлено сообщение от пользователя {msg[SENDER]} ')
+            except OSError:
+                self.remove_client(msg[DESTINATION])
         elif msg[DESTINATION] in self.names and self.names[msg[DESTINATION]] not in self.listen_sockets:
             logger.error(f'Связь с клиентом {msg[DESTINATION]} была потеряна. Отправка невозможна.')
             self.remove_client(self.names[msg[DESTINATION]])
@@ -101,6 +127,10 @@ class MessageProcessor(threading.Thread):
 
     @login_required
     def process_client_message(self, msg, client):
+        """
+        Метод - обработчик поступающих сообщений.
+        """
+
         logger.debug(f'Разбор сообщения клиента: {msg} ')
 
         if ACTION in msg and msg[ACTION] == PRESENCE and TIME in msg and USER in msg:
@@ -181,6 +211,10 @@ class MessageProcessor(threading.Thread):
                 self.remove_client(client)
 
     def authorize_user(self, message, sock):
+        """
+        Метод, реализующий авторизцию пользователей.
+        """
+
         logger.debug(f'Start auth process for {message[USER]}')
         if message[USER][ACCOUNT_NAME] in self.names.keys():
             response = RESPONSE_400
@@ -244,6 +278,10 @@ class MessageProcessor(threading.Thread):
                 sock.close()
 
     def service_update_list(self):
+        """
+        Метод, реализующий отправки сервисного сообщения 205 клиентам.
+        """
+
         for client in self.names:
             try:
                 send_message(self.names[client], RESPONSE_205)

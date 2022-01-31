@@ -18,6 +18,10 @@ logger = logging.getLogger('server')
 
 @Log()
 def arg_parser(default_port, default_address):
+    """
+    Парсер аргументов командной строки.
+    """
+
     parser = argparse.ArgumentParser()
     parser.add_argument('-p', default=default_port, type=int, nargs='?')
     parser.add_argument('-a', default=default_address, nargs='?')
@@ -31,6 +35,10 @@ def arg_parser(default_port, default_address):
 
 
 def config_load():
+    """
+    Парсер конфигурационного ini файла.
+    """
+
     config = configparser.ConfigParser()
     dir_path = os.path.dirname(os.path.realpath(__file__))
     config.read(f"{dir_path}/{'server+++.ini'}")
@@ -47,6 +55,10 @@ def config_load():
 
 @Log()
 def main():
+    """
+    Основная функция
+    """
+
     config = config_load()
 
     listen_address, listen_port, gui_flag = arg_parser(config['SETTINGS']['Default_port'], config['SETTINGS']['Listen_Address'])

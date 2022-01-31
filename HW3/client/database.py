@@ -1,19 +1,32 @@
 from sqlalchemy import create_engine, Table, Column, Integer, String, Text, MetaData, DateTime
 from sqlalchemy.orm import mapper, sessionmaker
+from common.variables import *
+import datetime
 import os
 import sys
 sys.path.append('../')
-from common.variables import *
-import datetime
 
 
 class ClientDB:
+    """
+    Класс - оболочка для работы с базой данных клиента. Использует SQLite базу данных, реализован с помощью SQLAlchemy
+    ORM и использован классический подход.
+    """
+
     class KnownUsers:
+        """
+        Класс - отображение таблицы всех зарегистрированных пользователей
+        """
+
         def __init__(self, user):
             self.id = None
             self.username = user
 
     class MessageHistory:
+        """
+        Класс - отображение статистики переданных сообщений
+        """
+
         def __init__(self, contact, direction, message):
             self.id = None
             self.contact = contact
@@ -22,6 +35,10 @@ class ClientDB:
             self.date = datetime.datetime.now()
 
     class Contacts:
+        """
+        Класс - отображение таблицы контактов
+        """
+
         def __init__(self, contact):
             self.id = None
             self.name = contact
@@ -67,16 +84,28 @@ class ClientDB:
         self.session.commit()
 
     def add_contact(self, contact):
+        """
+        Метод, добавляющий контакт в базу данных.
+        """
+
         if not self.session.query(self.Contacts).filter_by(name=contact).count():
             contact_row = self.Contacts(contact)
             self.session.add(contact_row)
             self.session.commit()
 
     def delete_contact(self, contact):
+        """
+        Метод, удаляющий выбранный контакт.
+        """
+
         self.session.query(self.Contacts).filter_by(name=contact).delete()
         self.session.commit()
 
     def add_users(self, users_list):
+        """
+        Метод, заполняющий таблицу известных пользователей.
+        """
+
         self.session.query(self.KnownUsers).delete()
         for user in users_list:
             user_row = self.KnownUsers(user)
@@ -84,29 +113,53 @@ class ClientDB:
         self.session.commit()
 
     def save_message(self, from_user, to_user, message):
+        """
+        Метод, сохраняющий сообщение в базе данных.
+        """
+
         message_row = self.MessageHistory(from_user, to_user, message)
         self.session.add(message_row)
         self.session.commit()
 
     def get_contacts(self):
+        """
+        Метод, возвращающий список контактов.
+        """
+
         return [contact[0] for contact in self.session.query(self.Contacts.name).all()]
 
     def get_users(self):
+        """
+        Метод, возвращающий список всех известных пользователей.
+        """
+
         return [user[0] for user in self.session.query(self.KnownUsers.username).all()]
 
     def check_user(self, user):
+        """
+        Метод, проверяющий существование пользователя.
+        """
+
         if self.session.query(self.KnownUsers).filter_by(username=user).count():
             return True
         else:
             return False
 
     def check_contact(self, contact):
+        """
+        Метод, проверяющий существование контакта.
+        """
+
         if self.session.query(self.Contacts).filter_by(name=contact).count():
             return True
         else:
             return False
 
     def get_history(self, contact):
+        """
+        Метод, возвращающий истоию сообщений с выбранным пользователем.
+        """
+
         query = self.session.query(self.MessageHistory).filter_by(contact=contact)
         return [(history_row.contact, history_row.direction, history_row.message, history_row.date) for history_row in query.all()]
 

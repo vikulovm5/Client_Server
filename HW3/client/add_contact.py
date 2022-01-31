@@ -1,15 +1,19 @@
+from PyQt5.QtWidgets import QDialog, QLabel, QComboBox, QPushButton, QApplication
+from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QStandardItemModel, QStandardItem
 import sys
 import logging
 
 sys.path.append('../')
-from PyQt5.QtWidgets import QDialog, QLabel, QComboBox, QPushButton, QApplication
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QStandardItemModel, QStandardItem
 
 logger = logging.getLogger('client')
 
 
 class AddContactDialog(QDialog):
+    """
+    Диалог добавления контактов. Предлагает пользователю список пользователей и добавляет выбранный в контакты.
+    """
+
     def __init__(self, s, database):
         super().__init__()
         self.s = s
@@ -45,6 +49,11 @@ class AddContactDialog(QDialog):
         self.btn_refresh.clicked.connect(self.update_possible_contacts)
 
     def possible_contacts_update(self):
+        """
+        Метод заполнения списка возможных контактов. Добавляет в список всех зарегистрированных пользователей,
+        кроме уже добавленных и самого себя.
+        """
+
         self.selector.clear()
         contacts_list = set(self.database.get_contacts())
         users_list = set(self.database.get_users())
@@ -52,6 +61,10 @@ class AddContactDialog(QDialog):
         self.selector.addItems(users_list - contacts_list)
 
     def update_possible_contacts(self):
+        """
+        Метод, обновляющий список возможных контактов.
+        """
+
         try:
             self.s.user_list_update()
         except OSError:
@@ -64,8 +77,10 @@ class AddContactDialog(QDialog):
 if __name__ == '__main__':
     app = QApplication(sys.argv)
     from database import ClientDB
+
     database = ClientDB('user1')
     from transport import ClientTransport
+
     transport = ClientTransport(7777, '127.0.0.1', database, 'user1')
     window = AddContactDialog(transport, database)
     window.show()

@@ -1,8 +1,8 @@
 import sys
 import os
 import logging
-sys.path.append('../')
 from HW3.common.variables import LOGGING_LEVEL
+sys.path.append('../')
 
 client_form = logging.Formatter('%(asctime)s %(levelname)-8s %(filename)s %(message)s')
 
