@@ -10,7 +10,7 @@ PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'client_log')
 
 stream_handler = logging.StreamHandler(sys.stderr)
 stream_handler.setFormatter(client_form)
-stream_handler.setLevel(logging.ERROR)
+stream_handler.setLevel(logging.INFO)
 log_file = logging.FileHandler(PATH, encoding='utf-8')
 log_file.setFormatter(client_form)
 
