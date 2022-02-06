@@ -2,6 +2,12 @@ import dis
 
 
 class ServerMaker(type):
+    """
+    Метакласс, проверяющий что в результирующем классе нет клиентских
+    вызовов таких как: connect. Также проверяется, что серверный
+    сокет является TCP и работает по IPv4 протоколу.
+    """
+
     def __init__(cls, clsname, bases, clsdict):
         methods = []
         attrs = []
@@ -27,6 +33,12 @@ class ServerMaker(type):
 
 
 class ClientMaker(type):
+    """
+    Метакласс, проверяющий что в результирующем классе нет серверных
+    вызовов таких как: accept, listen. Также проверяется, что сокет не
+    создаётся внутри конструктора класса.
+    """
+
     def __init__(cls, clsname, bases, clsdict):
         methods = []
         for func in clsdict:

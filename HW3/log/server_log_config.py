@@ -2,9 +2,9 @@ import sys
 import os
 import logging
 import logging.handlers
+from common.variables import LOGGING_LEVEL
 
 sys.path.append('../')
-from common.variables import LOGGING_LEVEL
 
 
 server_form = logging.Formatter('%(asctime)s %(levelname)-8s %(filename)s %(message)s')
